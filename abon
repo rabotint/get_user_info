@@ -1,0 +1,383 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# you have to use this promt$ abon <login>
+#|| login || login ||
+#|| iface || eth3.iface ||
+#|| IP || 192.168.7.8 ||
+#|| mask || 255.255.255.0 ||
+#|| geteway || 192.168.7.1 ||
+#|| server || router ||
+#|| switch || 10.10.10.10 ||
+#|| resolve || sw_name ||
+#|| model || sw_model ||
+#|| port || port_number ||
+#|| link || + ||
+#|| mac_on_port || aa-aa-aa-aa-aa-aa ||
+#|| arp || aa-aa-aa-aa-aa-aa ||
+#|| ping || 0% ||
+
+
+
+import sys, os
+import re # module for regex
+from netaddr import IPNetwork
+import socket # need for resolving IP hostname
+import subprocess
+import sqlite3
+#import mytelnet
+import telnetlib
+from subprocess import Popen, PIPE
+import psycopg2
+from datetime import datetime
+
+
+try:
+    login = sys.argv[1]
+except:
+    print "ERROR: No login given"
+    exit()
+
+
+
+class files:
+   import os
+   import re 
+   usrs_conf_backup_dir = "/netctl/var/backups/as/"
+#   import sqlite3
+   def cat_grep_all(self, ):
+      users_dict = {}
+      iface_server = {} 
+      for filename in self.os.listdir(self.usrs_conf_backup_dir):
+         server = filename.replace("_users.conf","")
+         w = open(self.usrs_conf_backup_dir + filename , "r")
+         user_list = w.read().split("</user>")
+#         i = 0
+#         pdb.set_trace()
+         for user in user_list:
+            user = self.re.findall(r"\w+ [^>]+", user)
+            ip = {}
+            ip6 = {}
+            ip_nat = {}
+            for data in user:
+               if "user " in data:
+                  login = self.re.findall(r"\S+$", data)[0]
+                  if users_dict.get("login") <> None: 
+                     ip = users_dict[login].items()[1]
+#                  if login == "SC20151133":
+#                     pdb.set_trace()
+               if "if " in data:
+                  iface = self.re.findall(r"\S+$", data)[0]
+               if "net " in data:
+                  net = self.re.findall(r"\S+$", data)
+                  if ip.get("net") <> None:
+                     ip4 = {"net": ip.get("net") + net  }
+                  else:
+                     ip4 = {"net":  net  }
+                     iface_server.update({net[0]:server})
+               if "net6 " in data:
+                  net6 = self.re.findall(r"\S+$", data)
+                  if ip.get("net6") <> None:
+                     ip6 = {"net6": ip.get("net") + net6  }
+                  else:
+                     ip6 = {"net6":  net6  }
+                     iface_server.update({net6[0]:server})
+               if "nat " in data:
+                  nat = self.re.findall(r"\S+$", data)
+                  if ip.get("nat") <> None:
+                     ip_nat = {"nat": ip_nat.get("nat") + nat  }
+                  else:
+                     ip_nat = {"nat":  nat  }
+                     iface_server.update({nat[0]:server})
+            try:
+                ip.update(ip4)
+                ip.update(ip6)
+                ip.update(ip_nat)                  
+                user_info = {login:{iface:ip}}
+                del login,iface,ip
+            except:
+               continue
+            users_dict.update(user_info)
+      return users_dict,iface_server         # 'DM2009120153': {'eth3.31.286': {'net': ['78.27.190.31/32']}}, 'DM2009120156'..
+                                             # {iface_server net:server, }
+
+
+
+
+
+
+pars = files()
+abons = pars.cat_grep_all()[0]
+ifaces = pars.cat_grep_all()[1] 
+
+abon = abons.get(login)
+info = abon.popitem()
+iface = info[0]
+nets = info[1]
+NAT = False
+print "|| login || " + login + " ||" 
+print "|| iface || " + iface + " ||"
+if nets.get("nat") <> None:
+      for nats in nets.get("nat"):
+         print "|| nat || " + nats + " ||"     
+         NAT = True
+net4 = nets.get("net")
+for ip in net4:
+   ip = IPNetwork(ip)
+   if NAT:
+      print "|| IP || " +  str(ip.ip) + " ||"
+      print "|| server || " +  str(ifaces.get(str(ip))) + " ||"      
+   elif ip.prefixlen == 32:
+      print "|| IP || " +  str(ip.ip) + " ||"
+      ip_24 = IPNetwork(str(ip.ip)+"/24")
+      print "|| mask || " + str(ip_24.netmask) + " ||"
+      print "|| geteway || " + str(list(ip_24)[1]) + " ||"
+      print "|| server || " +  str(ifaces.get(str(ip))) + " ||"      
+   elif ip.prefixlen < 30:
+      print "|| IP firs || " +  str(ip[2]) + " ||"
+      print "|| IP last || " +  str(ip[-2]) + " ||"
+      print "|| mask || " + str(ip.netmask) + " ||"
+      print "|| geteway || " + str(ip[1]) + " ||"
+      print "|| server || " +  str(ifaces.get(str(ip))) + " ||"      
+   elif ip.prefixlen == 30:
+      print "|| IP || " +  str(ip[2]) + " ||"
+      print "|| mask || " + str(ip.netmask) + " ||"
+      print "|| geteway || " + str(ip[1]) + " ||"
+      print "|| server || " +  str(ifaces.get(str(ip))) + " ||"      
+if nets.get("net6") <> None:
+   print "|| IP_v6 || " +  str(nets.get("net6")[0]) + " ||"      
+   print "|| server || " +  str(ifaces.get(str(ip))) + " ||"      
+
+SWITCH_VLAN_DB = "/netctl/tools/table_repair/VlanSwitch_db.sqlite3_new"
+
+def get_switch_info(qinq_id, vlan_id):
+    """
+    Return switch_ip and switch_hostname for specfied qinq_id and vlan_id
+    """
+
+    switch_ip = '  '
+    switch_hostname = '  '
+    if SWITCH_VLAN_DB:
+        conn = sqlite3.connect(SWITCH_VLAN_DB)
+        query_result = conn.execute('select switch_ip,Gepon,BDcom,pon_ID,onu_ID from vlan_switch where qinq_id=? and vlan_id=?', (qinq_id, vlan_id))
+        query_result = query_result.fetchall()
+        conn.close()
+        # if length of query_result more then 0..,
+        # in other words, if sql-query returns something
+        if len(query_result):
+            switch_ip = query_result[0][0]
+            try:
+                switch_hostname = socket.gethostbyaddr(switch_ip)[0]
+                switch_hostname = switch_hostname.replace('.sw.domen.local' , '')
+                switch_hostname = switch_hostname.replace('.l2.domen.com.ua', '')
+            except:
+                switch_hostname = 'unknown'
+    return (switch_ip, switch_hostname,query_result[0])
+
+# since this moment I use code which I wrote many years ago 
+        qinq_id = iface_as_list[-2]
+        vlan_id = iface_as_list[-1]
+    # Get switch IP and hostname
+        switch_info = get_switch_info(qinq_id, vlan_id)
+#	print switch_info[2]
+        switch_ip = switch_info[0]
+        switch_hostname = switch_info[1]
+    if switch_info[2][1] or switch_info[2][2]:
+       pon_list=[]
+       pon_list.append('||pon ip|| ' + switch_ip + ' ||')
+       pon_list.append('||pon name|| ' + switch_hostname + ' ||')
+       pon_list.append('||pon port|| ' +  str(switch_info[2][3])+ ' ||')
+       pon_list.append('||onu|| ' +  str(switch_info[2][4]) + ' ||')
+    else:
+       table_repair_list.append('||sw ip|| ' + switch_ip + ' ||')
+       table_repair_list.append('||sw name|| ' + switch_hostname + ' ||')
+       pon_list = ""
+    # Add other stuff
+#    psgsql = """psql -h 8.8.8.8 -d db_name -U swctl -c "SELECT model, manufactor from supctl_get_sw_info WHERE ip='""" + switch_ip + ''''limit 1;"''' 
+#    proc = Popen([psgsql], shell=True, stdin=PIPE, stdout=PIPE)
+#    model_sw = proc.communicate()
+#    model_sw = model_sw[0]
+#    model_sw = model_sw.split('\n')
+#    model_sw = model_sw[2].strip(' ')
+#    model_sw = model_sw.split(' | ')
+#    manufact_sw = model_sw[1]
+#    model_sw = model_sw[0]
+
+    try:
+        conn=psycopg2.connect("dbname='db_name' user='swctl' host='8.8.8.8'  password='pass'")
+    except:
+        print " Не подключился к базе"
+
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""SELECT model, manufactor from supctl_get_sw_info WHERE ip='""" + switch_ip + ''''limit 1;''')
+    except:
+        print "Такого нету в базе"
+    try:
+        rows = cur.fetchall()
+    except:
+        rows = [['неизвесная','модель'],'']
+    sys.exit("There are wrong date in sw.domen.com.ua database. \n Ma be there are no sw qinq") if rows == [] else ""
+    iw = rows[0]
+    model_sw = iw[0]
+    manufact_sw = iw[1]
+    if model_sw <> "неизвесная" :
+	if model_sw == 'S6224-S4'  or model_sw=='S6224-S2' or model_sw == 'S6208-S1' or model_sw == "S6248-S4" or model_sw == "S6248-S2" or model_sw =="S6124-S2" :
+           try:
+	       t=mytelnet.telnet(switch_ip)
+               error = ""
+           except:
+               error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+	       qwe=mytelnet.S6224(vlan_id,t)
+	elif model_sw == 'PowerConnect 3324' or  model_sw == 'PowerConnect 3448' or model_sw == "PowerConnect 3424" or model_sw == "PowerConnect 3448" or model_sw =="PowerConnect 5324" :
+           try:
+	       t=mytelnet.telnetDELL(switch_ip)
+               error = ""
+           except:
+               error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+	       qwe=mytelnet.PC3324(vlan_id,t)
+	elif model_sw == 'ISCOM2110EA-MA-WP' or model_sw=="ISCOM2128EA-MA-AC"  : 
+           try:
+	       t=mytelnet.telnetCOM(switch_ip)
+               error = ""
+           except:
+	       error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+	       qwe=mytelnet.com2128(vlan_id,t)
+	elif model_sw == 'Summit 200-24' or model_sw == 'Summit 200-48' or model_sw == "X150-24t" : 
+           try:
+	       t=mytelnet.telnetExtreme(switch_ip)
+               error = ""
+           except:
+               error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+	       qwe=mytelnet.Extreme(vlan_id,t)
+	elif model_sw == "Summit 48i": 
+           try:
+	       t=telnetExtreme(switch_ip)
+               error = ""
+           except:
+               error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+	       qwe=mytelnet.ExtremeS48i(vlan_id,t)
+	elif model_sw == "S-6008-S2L2" or model_sw == "S-6008-S1L2" : 
+           try:
+	       t=telnet6008(switch_ip)
+               error = ""
+           except:
+               error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+	       qwe=mytelnet.S6008(vlan_id,t)
+	elif model_sw == "WS-C2924M-XL" or model_sw == "WS-C2924M-XL" or model_sw == "WS-C2924-XL" or model_sw =="WS-C3524-XL"  or model_sw =="WS-C3524-PWR-XL" or model_sw =="WS-C2950-24" or model_sw =="WS-C3548-XL": 
+           try:
+	       t=mytelnet.telnetCiscoWS(switch_ip)
+               error = ""
+           except:
+               error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+	       qwe=mytelnet.CISCO(vlan_id,t)
+        elif model_sw == "Vector 1908G2" or model_sw == "Vector 1908":
+           try:
+               t=mytelnet.telnetAsotel(switch_ip)
+               error = ""
+           except:
+               error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+               qwe=mytelnet.Asotel(vlan_id,t)
+        elif model_sw == "DES-3028" or  model_sw == "DES-3526":
+           try:
+               t=mytelnet.telnetDLink(switch_ip)
+               error = ""
+           except:
+               error = "Свитч недоступен или такого нет."
+           if error == "Свитч недоступен или такого нет.":
+               print "\033[1;31m" + error + "\033[1;m"
+               qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+           else:
+               qwe=mytelnet.DLink(vlan_id,t)
+	else: 
+	   print 'Model do not add to skript. Pleas talk me for that'
+	   qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+    #    table_repa||link sw||  ||')  ir_list.append('||port||  ||')
+    #    table_repa||link abon||  ||')ir_list.append('||link sw||  ||')
+    #    table_repa||mac on port||  ||ir_list.append('||link abon||  ||')
+    #    table_repair_list.append('||mac on port||  ||')
+    #    table_repair_list.append('||arp||  ||')
+	# make it string 
+    else:
+    	print "Свич не добавлен в скрипт.\nПожалуйста, используйте edit_VlanSwitch_db \nдля добавления свича в скрипт "
+	qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
+    arp = get_arp(abon_ip,server)
+#    print arp
+    arp = "||arp||" + arp + "||"
+    table_repair = '\n'.join(table_repair_list)
+    if arp == "||arp||-||" :
+        ping = ""
+    else: 
+        ping = "sudo ping -f -s1400 -w1 {}".format(abon_ip)
+        proc = Popen(ping,  shell=True, stdin=PIPE, stdout=PIPE)
+        ping = proc.communicate()
+        ping = ping[0]
+        ping_index = ping.index("packet loss")
+        ping = ping[ping_index - 5 : ping_index] 
+        ping = "||loss||" + ping + "||"
+    return (table_repair,qwe,model_sw,manufact_sw,arp,ping,pon_list)
+
+def get_login():
+        user = "whoami"
+        proc = Popen(user,  shell=True, stdin=PIPE, stdout=PIPE)
+        who = proc.communicate()
+	f = open('/home/user/who_use.txt', 'a')
+	now = datetime.strftime(datetime.now(), "%Y.%m.%d %H:%M:%S")
+	f.write(who[0] + "   " + now + '\n')
+        f.close()
+
+#get_login()
+
+
+for file_path in users_conf_filelist:
+    parsed_users_conf = parse_users_conf(file_path)
+    server_name = get_server_name(file_path)
+    table_repair = create_table_repair(parsed_users_conf, user_login, server_name)
+    print ''
+    print table_repair[0]
+    sw_model = table_repair[2]
+    sw_manufact = table_repair[3]
+    print "||" + sw_manufact + '||' + sw_model + '||'
+    repair_table = table_repair[1]
+    if table_repair[6] :
+       print "\n".join(table_repair[-1])
+    else:
+#       print repair_table
+       print repair_table[0]
+       print repair_table[1]
+       print repair_table[2] 
+       print table_repair[4]
+       print table_repair[5]
