@@ -179,7 +179,6 @@ def get_switch_info(qinq_id, vlan_id):
         vlan_id = iface_as_list[-1]
     # Get switch IP and hostname
         switch_info = get_switch_info(qinq_id, vlan_id)
-#	print switch_info[2]
         switch_ip = switch_info[0]
         switch_hostname = switch_info[1]
     if switch_info[2][1] or switch_info[2][2]:
@@ -192,17 +191,6 @@ def get_switch_info(qinq_id, vlan_id):
        table_repair_list.append('||sw ip|| ' + switch_ip + ' ||')
        table_repair_list.append('||sw name|| ' + switch_hostname + ' ||')
        pon_list = ""
-    # Add other stuff
-#    psgsql = """psql -h 8.8.8.8 -d db_name -U swctl -c "SELECT model, manufactor from supctl_get_sw_info WHERE ip='""" + switch_ip + ''''limit 1;"''' 
-#    proc = Popen([psgsql], shell=True, stdin=PIPE, stdout=PIPE)
-#    model_sw = proc.communicate()
-#    model_sw = model_sw[0]
-#    model_sw = model_sw.split('\n')
-#    model_sw = model_sw[2].strip(' ')
-#    model_sw = model_sw.split(' | ')
-#    manufact_sw = model_sw[1]
-#    model_sw = model_sw[0]
-
     try:
         conn=psycopg2.connect("dbname='db_name' user='swctl' host='8.8.8.8'  password='pass'")
     except:
@@ -325,12 +313,6 @@ def get_switch_info(qinq_id, vlan_id):
 	else: 
 	   print 'Model do not add to skript. Pleas talk me for that'
 	   qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
-    #    table_repa||link sw||  ||')  ir_list.append('||port||  ||')
-    #    table_repa||link abon||  ||')ir_list.append('||link sw||  ||')
-    #    table_repa||mac on port||  ||ir_list.append('||link abon||  ||')
-    #    table_repair_list.append('||mac on port||  ||')
-    #    table_repair_list.append('||arp||  ||')
-	# make it string 
     else:
     	print "Свич не добавлен в скрипт.\nПожалуйста, используйте edit_VlanSwitch_db \nдля добавления свича в скрипт "
 	qwe = ['||port||  ||','||link sw|| ||', '||link abon|| ||','||mac|| ||']
